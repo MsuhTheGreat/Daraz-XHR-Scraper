@@ -1,194 +1,206 @@
-import httpx
-import asyncio
-import random
-import json
-from urllib.parse import quote
-from time import time
-from pydantic import BaseModel
-from typing import Optional
-import pandas as pd
-import os
-from dotenv import load_dotenv
+"""
+Daraz Product Scraper
+----------------------
+Asynchronous web scraper for Daraz using rotating headers and proxies.
 
-# Load environment variables from .env file
+Features:
+- Uses ScrapeOps to simulate real browser headers
+- Uses Webshare.io proxies to avoid IP bans
+- Concurrent scraping of multiple products
+- Cleans and exports data to CSV files
+- Validates product data with Pydantic
+
+Environment Variables Required:
+- SCRAPEOPS_API_KEY
+- WEBSHARE_API_KEY
+"""
+
+import os
+import json
+import random
+import asyncio
+from time import time
+from typing import Optional
+from urllib.parse import quote
+
+import httpx
+import pandas as pd
+from dotenv import load_dotenv
+from pydantic import BaseModel
+
+# ----------------------------------------
+# Environment Setup
+# ----------------------------------------
+
 load_dotenv()
 
-# Constants
-SCRAPEOPS_ENDPOINT = 'https://headers.scrapeops.io/v1/browser-headers'
 SCRAPEOPS_API_KEY = os.getenv("SCRAPEOPS_API_KEY")
 WEBSHARE_API_KEY = os.getenv("WEBSHARE_API_KEY")
+SCRAPEOPS_ENDPOINT = "https://headers.scrapeops.io/v1/browser-headers"
 PRODUCTS = ["ear pods", "power bank", "smartwatch", "abaya"]
 CONCURRENCY = 5
 
-# Limit concurrent scraping tasks
 semaphore = asyncio.Semaphore(CONCURRENCY)
 
+# ----------------------------------------
+# Models
+# ----------------------------------------
+
+class DarazItem(BaseModel):
+    brandId: Optional[str]
+    brandName: Optional[str]
+    inStock: Optional[bool]
+    isSponsored: Optional[bool]
+    itemId: Optional[str]
+    itemSoldCntShow: Optional[str]
+    location: Optional[str]
+    name: Optional[str]
+    originalPrice: Optional[str]
+    price: Optional[str]
+    ratingScore: Optional[str]
+    review: Optional[str]
+    sellerId: Optional[str]
+    sellerName: Optional[str]
+
+# ----------------------------------------
+# Header & Proxy Setup
+# ----------------------------------------
 
 async def get_scrapeops_headers():
-    """
-    Fetch fake browser headers from ScrapeOps to simulate real browser traffic.
-    """
     async with httpx.AsyncClient(timeout=15) as client:
         params = {'api_key': SCRAPEOPS_API_KEY, 'num_results': 50}
         response = await client.get(SCRAPEOPS_ENDPOINT, params=params)
         return response.json().get("result", [])
 
-
 async def get_webshare_proxies():
-    """
-    Fetch proxy list from Webshare.io using API key authentication.
-    Returns a list of proxy URLs with embedded credentials.
-    """
-    headers = {
-        "Authorization": f"Token {WEBSHARE_API_KEY}"
-    }
     url = "https://proxy.webshare.io/api/v2/proxy/list/?mode=direct"
+    headers = {"Authorization": f"Token {WEBSHARE_API_KEY}"}
+    
     async with httpx.AsyncClient(timeout=15) as client:
         response = await client.get(url, headers=headers)
-        data = response.json()
+        proxies = response.json().get("results", [])
 
-    # Construct proxy URLs from API response
-    proxy_list = [
-        f'http://{result["username"]}:{result["password"]}@{result["proxy_address"]}:{result["port"]}'
-        for result in data['results']
+    return [
+        f'http://{p["username"]}:{p["password"]}@{p["proxy_address"]}:{p["port"]}'
+        for p in proxies
     ]
-    return proxy_list
 
+# ----------------------------------------
+# Scraping Logic
+# ----------------------------------------
 
-class DarazItem(BaseModel):
-    """
-    Pydantic model to validate and structure product data.
-    """
-    brandId: Optional[str] = None
-    brandName: Optional[str] = None
-    inStock: Optional[bool] = None
-    isSponsored: Optional[bool] = None
-    itemId: Optional[str] = None
-    itemSoldCntShow: Optional[str] = None
-    location: Optional[str] = None
-    name: Optional[str] = None
-    originalPrice: Optional[str] = None
-    price: Optional[str] = None
-    ratingScore: Optional[str] = None
-    review: Optional[str] = None
-    sellerId: Optional[str] = None
-    sellerName: Optional[str] = None
-
-
-async def scrape_product(product:str, browser_headers, proxies_list):
-    """
-    Scrape product listings for a given product keyword across multiple pages.
-    Now with improved logging for better UX.
-    """
+async def scrape_product(product: str, headers_list, proxies_list):
     async with semaphore:
         page = 1
-        is_last_page = False
-        tries = 0
-        max_tries = 3
-        total_scraped = 0
+        retries = 0
+        max_retries = 3
+        total_items = 0
+        done = False
 
-        print(f"\n🔍 Starting scrape for: {product.upper()} 🛒")
+        print(f"\n🔍 Starting scraping for: {product.upper()} 🛒")
 
-        while not is_last_page:
-            tries += 1
-            random_headers = random.choice(browser_headers)
-            random_proxy = random.choice(proxies_list)
+        while not done:
+            retries += 1
+            proxy = random.choice(proxies_list)
+            headers = random.choice(headers_list)
 
-            # Encode product name into URL
-            target_url = (
-                f"https://www.daraz.pk/catalog/?ajax=true&isFirstRequest=true"
+            url = (
+                "https://www.daraz.pk/catalog/?ajax=true&isFirstRequest=true"
                 f"&page={page}&q={quote(product)}&spm=a2a0e.tm80335142.search.d_go"
             )
 
-            async with httpx.AsyncClient(proxy=random_proxy, timeout=30) as client:
-                response = await client.get(url=target_url, headers=random_headers)
-
-                if response.status_code != 200:
-                    print(f"❌ Page {page} | {product} ❗️Failed (Status {response.status_code})")
-                    if tries <= max_tries:
-                        print(f"🔁 Product: {product.capitalize()} Retrying page {page}... Attempt {tries}/{max_tries}")
+            async with httpx.AsyncClient(proxy=proxy, timeout=30) as client:
+                try:
+                    response = await client.get(url, headers=headers)
+                except Exception as e:
+                    print(f"⚠️ Network error on page {page} [{product}]: {e}")
+                    if retries < max_retries:
+                        print(f"🔁 Retrying ({retries}/{max_retries})...")
                         continue
-                    else:
-                        print(f"💥 Max retries exceeded for {product} on page {page}. Skipping.")
-                        break
+                    break
 
-                tries = 0  # Reset tries on success
+            if response.status_code != 200:
+                print(f"❌ Page {page} | {product} ❗Failed (Status {response.status_code})")
+                if retries < max_retries:
+                    print(f"🔁 Product: {product.capitalize()} Retrying page {page}... Attempt {retries}/{max_retries}")
+                    continue
+                else:
+                    print(f"💥 Max retries exceeded for {product} on page {page}. Skipping.")
+                    break
+
+            retries = 0  # reset on success
 
             try:
-                await response.aread()
                 json_data = response.json()
-                is_last_page = json_data['mainInfo']['noMorePages']
-                items = json_data['mods']['listItems']
+                done = json_data["mainInfo"]["noMorePages"]
+                items = json_data["mods"]["listItems"]
 
-                with open(f"{product.replace(' ', '_')}_data.jsonl", "a", encoding="utf-8") as file:
+                file_path = f"{product.replace(' ', '_')}_data.jsonl"
+                with open(file_path, "a", encoding="utf-8") as f:
                     for item in items:
-                        file.write(json.dumps(item, ensure_ascii=False) + "\n")
+                        f.write(json.dumps(item, ensure_ascii=False) + "\n")
 
-                total_scraped += len(items)
-                print(f"✅ Product: {product.capitalize()} | Page {page} | Scraped {len(items)} items | 📦 Total so far: {total_scraped}")
+                total_items += len(items)
+                print(f"✅ Product: {product.capitalize()} | Page {page} | Scraped {len(items)} items | 📦 Total so far: {total_items}")
                 page += 1
 
             except Exception as e:
                 print(f"⚠️ Failed to parse data on page {page} for {product} 🚧 Error: {e}")
                 break
 
-        print(f"🏁 Finished scraping {product} ✅ Total pages: {page - 1} | Total items: {total_scraped}\n")
+        print(f"🔴 Finished scraping {product} ✅ Total pages: {page - 1} | Total items: {total_items}\n")
+
+# ----------------------------------------
+# Data Cleaning
+# ----------------------------------------
+
+def normalize_sales_count(df: pd.DataFrame) -> pd.DataFrame:
+    df[["num", "prefix"]] = df["itemSoldCntShow"].str.extract(r'([\d.]+)([a-zA-Z]?)')
+    df["num"] = pd.to_numeric(df["num"], errors="coerce")
+    df["prefix"] = df["prefix"].str.lower()
+
+    df["itemSoldCntShow"] = df["num"]
+    df.loc[df["prefix"] == "k", "itemSoldCntShow"] = df["num"] * 1_000
+    df.loc[df["prefix"] == "m", "itemSoldCntShow"] = df["num"] * 1_000_000
+
+    return df.drop(columns=["num", "prefix"])
 
 
 def create_csv():
-    """
-    Convert all JSONL product files into cleaned CSVs using Pydantic validation.
-    It also normalizes the itemSoldCntShow field for better numeric analysis.
-    """
     for product in PRODUCTS:
-        with open(f"{product.replace(' ', '_')}_data.jsonl", "r", encoding="utf-8") as file:
-            try:
-                dantic_items = [DarazItem(**json.loads(line)) for line in file if line.strip()]
-            except Exception as e:
-                print(f"❌ Product: {product} Error occurred while converting to Pydantic: {e}")
-                return
+        file = f"{product.replace(' ', '_')}_data.jsonl"
+        try:
+            with open(file, "r", encoding="utf-8") as f:
+                items = [DarazItem(**json.loads(line)) for line in f if line.strip()]
+        except Exception as e:
+            print(f"❌ {product} - JSONL read error: {e}")
+            continue
 
-        # Convert Pydantic models to DataFrame
-        df = pd.DataFrame(item.model_dump() for item in dantic_items)
-
-        # Clean up itemSoldCntShow (e.g., "1.2k", "3M")
-        df[["num", "prefix"]] = df["itemSoldCntShow"].str.extract(r'([\d.]+)([a-zA-Z]?)')
-        df["num"] = pd.to_numeric(df["num"], errors="coerce")
-        df["prefix"] = df["prefix"].str.lower()
-
-        # Convert abbreviated counts to actual numbers
-        df["itemSoldCntShow"] = df["num"].where(df["prefix"] == "", df["num"])
-        df.loc[df["prefix"] == "k", "itemSoldCntShow"] = df["num"] * 1000
-        df.loc[df["prefix"] == "m", "itemSoldCntShow"] = df["num"] * 1_000_000
-
-        df.drop(columns=["num", "prefix"], inplace=True)
-
-        # Export to CSV
+        df = pd.DataFrame(item.model_dump() for item in items)
+        df = normalize_sales_count(df)
         df.to_csv(f"{product.replace(' ', '_')}_data.csv", index=False, encoding="utf-8-sig")
+
         print(f"📄 CSV created for {product}")
 
+# ----------------------------------------
+# Entry Point
+# ----------------------------------------
 
 async def main():
-    """
-    Main async entrypoint: fetch headers, proxies, and scrape all products.
-    """
     browser_headers = await get_scrapeops_headers()
-    proxies_list = await get_webshare_proxies()
+    proxies = await get_webshare_proxies()
 
-    # Shuffle to randomize usage
     random.shuffle(browser_headers)
-    random.shuffle(proxies_list)
+    random.shuffle(proxies)
 
-    # Create tasks for each product
-    tasks = [scrape_product(product, browser_headers, proxies_list) for product in PRODUCTS]
+    tasks = [scrape_product(product, browser_headers, proxies) for product in PRODUCTS]
     await asyncio.gather(*tasks)
 
-    # Convert raw data to CSV
     create_csv()
 
 
 if __name__ == "__main__":
-    tic = time()
+    start = time()
     asyncio.run(main())
-    toc = time()
-    print(f"\n🚀 Execution Time: {round(toc - tic, 2)} sec")
+    end = time()
+    print(f"\n⏰ Finished in {round(end - start, 2)} seconds")
