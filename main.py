@@ -47,20 +47,20 @@ semaphore = asyncio.Semaphore(CONCURRENCY)
 # ----------------------------------------
 
 class DarazItem(BaseModel):
-    brandId: Optional[str]
-    brandName: Optional[str]
-    inStock: Optional[bool]
-    isSponsored: Optional[bool]
-    itemId: Optional[str]
-    itemSoldCntShow: Optional[str]
-    location: Optional[str]
-    name: Optional[str]
-    originalPrice: Optional[str]
-    price: Optional[str]
-    ratingScore: Optional[str]
-    review: Optional[str]
-    sellerId: Optional[str]
-    sellerName: Optional[str]
+    brandId: Optional[str] = None
+    brandName: Optional[str] = None
+    inStock: Optional[bool] = None
+    isSponsored: Optional[bool] = None
+    itemId: Optional[str] = None
+    itemSoldCntShow: Optional[str] = None
+    location: Optional[str] = None
+    name: Optional[str] = None
+    originalPrice: Optional[str] = None
+    price: Optional[str] = None
+    ratingScore: Optional[str] = None
+    review: Optional[str] = None
+    sellerId: Optional[str] = None
+    sellerName: Optional[str] = None
 
 # ----------------------------------------
 # Header & Proxy Setup
