@@ -63,7 +63,7 @@ class DarazItem(BaseModel):
     sellerName: Optional[str] = None
 
 # ----------------------------------------
-# Header & Proxy Setup
+# Headers, Proxy and Products Setup
 # ----------------------------------------
 
 async def get_scrapeops_headers():
@@ -84,6 +84,31 @@ async def get_webshare_proxies():
         f'http://{p["username"]}:{p["password"]}@{p["proxy_address"]}:{p["port"]}'
         for p in proxies
     ]
+
+def get_product_list():
+    # Allow user to edit product list
+    if os.path.exists("items.json"):
+        with open("items.json", "r") as file:
+            items = json.load(file)
+    else:
+        items = []
+    while True:
+        print(f"\n📦 Items to Search: {items}")
+        choice = input("Type 'no' to continue, 'add' to add item, 'remove' to remove item: ").lower()
+        if choice == "no":
+            if not items == []: 
+                break
+        elif choice == "add":
+            item = input("Enter item name: ")
+            if item not in items: items.append(item)
+        elif choice == "remove":
+            item = input("Enter item name: ")
+            if item in items: items.remove(item)
+        else:
+            print("⚠️ Invalid input.")
+    with open("items.json", "w") as file:
+        json.dump(items, file, indent=4)
+    return items
 
 # ----------------------------------------
 # Scraping Logic
