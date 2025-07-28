@@ -192,7 +192,7 @@ def normalize_sales_count(df: pd.DataFrame) -> pd.DataFrame:
 
 def create_csv():
     for product in PRODUCTS:
-        file = f"Data\json{product.replace(' ', '_')}_data.jsonl"
+        file = f"Data\json\{product.replace(' ', '_')}_data.jsonl"
         try:
             with open(file, "r", encoding="utf-8") as f:
                 items = [DarazItem(**json.loads(line)) for line in f if line.strip()]
