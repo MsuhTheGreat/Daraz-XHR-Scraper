@@ -37,7 +37,6 @@ load_dotenv()
 SCRAPEOPS_API_KEY = os.getenv("SCRAPEOPS_API_KEY")
 WEBSHARE_API_KEY = os.getenv("WEBSHARE_API_KEY")
 SCRAPEOPS_ENDPOINT = "https://headers.scrapeops.io/v1/browser-headers"
-PRODUCTS = ["ear pods", "power bank", "smartwatch", "abaya"]
 CONCURRENCY = 5
 
 semaphore = asyncio.Semaphore(CONCURRENCY)
@@ -210,6 +209,8 @@ def create_csv():
 # ----------------------------------------
 # Entry Point
 # ----------------------------------------
+
+PRODUCTS = get_product_list()
 
 async def main():
     browser_headers = await get_scrapeops_headers()
