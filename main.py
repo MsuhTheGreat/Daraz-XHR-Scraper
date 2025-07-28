@@ -202,7 +202,7 @@ def create_csv():
 
         df = pd.DataFrame(item.model_dump() for item in items)
         df = normalize_sales_count(df)
-        df.to_csv(f"Data\csv{product.replace(' ', '_')}_data.csv", index=False, encoding="utf-8-sig")
+        df.to_csv(f"Data\csv\{product.replace(' ', '_')}_data.csv", index=False, encoding="utf-8-sig")
 
         print(f"📄 CSV created for {product}")
 
