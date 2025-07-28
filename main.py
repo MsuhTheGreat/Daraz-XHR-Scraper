@@ -37,7 +37,7 @@ load_dotenv()
 SCRAPEOPS_API_KEY = os.getenv("SCRAPEOPS_API_KEY")
 WEBSHARE_API_KEY = os.getenv("WEBSHARE_API_KEY")
 SCRAPEOPS_ENDPOINT = "https://headers.scrapeops.io/v1/browser-headers"
-CONCURRENCY = 5
+CONCURRENCY = 5             # Do not change it unless you are sure about the amount of proxies available. 
 
 semaphore = asyncio.Semaphore(CONCURRENCY)
 
@@ -159,7 +159,7 @@ async def scrape_product(product: str, headers_list, proxies_list):
                 done = json_data["mainInfo"]["noMorePages"]
                 items = json_data["mods"]["listItems"]
 
-                file_path = f"{product.replace(' ', '_')}_data.jsonl"
+                file_path = f"Data\json\{product.replace(' ', '_')}_data.jsonl"
                 with open(file_path, "a", encoding="utf-8") as f:
                     for item in items:
                         f.write(json.dumps(item, ensure_ascii=False) + "\n")
@@ -192,7 +192,7 @@ def normalize_sales_count(df: pd.DataFrame) -> pd.DataFrame:
 
 def create_csv():
     for product in PRODUCTS:
-        file = f"{product.replace(' ', '_')}_data.jsonl"
+        file = f"Data\json{product.replace(' ', '_')}_data.jsonl"
         try:
             with open(file, "r", encoding="utf-8") as f:
                 items = [DarazItem(**json.loads(line)) for line in f if line.strip()]
@@ -202,7 +202,7 @@ def create_csv():
 
         df = pd.DataFrame(item.model_dump() for item in items)
         df = normalize_sales_count(df)
-        df.to_csv(f"{product.replace(' ', '_')}_data.csv", index=False, encoding="utf-8-sig")
+        df.to_csv(f"Data\csv{product.replace(' ', '_')}_data.csv", index=False, encoding="utf-8-sig")
 
         print(f"📄 CSV created for {product}")
 
@@ -215,6 +215,9 @@ PRODUCTS = get_product_list()
 async def main():
     browser_headers = await get_scrapeops_headers()
     proxies = await get_webshare_proxies()
+
+    os.makedirs("Data\json", exist_ok=True)
+    os.makedirs("Data\csv", exist_ok=True)
 
     random.shuffle(browser_headers)
     random.shuffle(proxies)
